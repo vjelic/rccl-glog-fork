@@ -21,32 +21,34 @@ project(rccl CXX)
 option(BUILD_ADDRESS_SANITIZER                 "Enable address sanitizer"                      OFF)
 option(BUILD_BFD                               "Enable custom backtrace (if bfd.h exists)"     OFF)
 option(BUILD_FILE_REORG_BACKWARD_COMPATIBILITY "File/folder reorg with backward compatibility" OFF)
-option(BUILD_LOCAL_GPU_TARGET_ONLY             "Build only for GPUs detected on this machine"  OFF)
+option(BUILD_LOCAL_GPU_TARGET_ONLY             "Build only for GPUs detected on this machine"  ON)
 option(BUILD_SHARED_LIBS                       "Build as shared library"                       ON)
 option(BUILD_TESTS                             "Build unit test programs"                      OFF)
-option(COLLTRACE                               "Collective Trace Option"                       ON)
-option(ENABLE_MSCCL_KERNEL                     "Enable MSCCL while compiling"                  ON)
-option(ENABLE_MSCCLPP                          "Enable MSCCL++"                                ON)
+option(COLLTRACE                               "Collective Trace Option"                       OFF)
+option(ENABLE_MSCCL_KERNEL                     "Enable MSCCL while compiling"                  OFF)
+option(ENABLE_MSCCLPP                          "Enable MSCCL++"                                OFF)
 option(ENABLE_IFC                              "Enable indirect function call"                 OFF)
 option(INSTALL_DEPENDENCIES                    "Force install dependencies"                    OFF)
-option(ROCTX                                   "Enable ROCTX"                                  ON)
+option(ROCTX                                   "Enable ROCTX"                                  OFF)
 option(PROFILE                                 "Enable profiling"                              OFF)
 option(TIMETRACE                               "Enable time-trace during compilation"          OFF)
 option(TRACE                                   "Enable additional tracing"                     OFF)
 
+option(FORCE_GLOBAL_MEMSPACE                   "Force using global memory space"               ON)
+
 # Default GPU architectures to build
 #==================================================================================================
 set(DEFAULT_GPUS
-      gfx906
-      gfx908
-      gfx90a
-      gfx942
-      gfx1030
-      gfx1100
-      gfx1101
-      gfx1102
-      gfx1200
-      gfx1201)
+      # gfx906
+      # gfx908
+      # gfx90a
+      gfx942)
+      # gfx1030
+      # gfx1100
+      # gfx1101
+      # gfx1102
+      # gfx1200
+      # gfx1201)
 
 # Load CMake modules
 #==================================================================================================
@@ -766,6 +768,11 @@ if(DEMANGLE_DIR)
 endif()
 if(LL128_ENABLED)
   target_compile_definitions(rccl PRIVATE ENABLE_LL128)
+endif()
+if(NOT FORCE_GLOBAL_MEMSPACE)
+  target_compile_definitions(rccl PRIVATE "GLOBAL=")
+else()
+  target_compile_definitions(rccl PRIVATE "GLOBAL=__attribute__((address_space(1)))")
 endif()
 
 ## Set RCCL compile options

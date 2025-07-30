@@ -18,7 +18,7 @@ namespace {
 #if defined(USE_INDIRECT_FUNCTION_CALL) && !defined(__gfx940__) && !defined(__gfx941__) && !defined(__gfx942__)
   __device__ void runRing(int tid, int nthreads, struct ncclDevWorkColl* work) {
 #else
-  __device__ __attribute__((noinline)) void runRing(int tid, int nthreads, struct ncclDevWorkColl* work) {
+  __device__ __forceinline__  void runRing(int tid, int nthreads, struct ncclDevWorkColl* work) {
 #endif
     ncclRing *ring = &ncclShmem.channel.ring;
     int ringIx = ring->index;
@@ -212,7 +212,7 @@ namespace {
 #if defined(USE_INDIRECT_FUNCTION_CALL) && !defined(__gfx940__) && !defined(__gfx941__) && !defined(__gfx942__)
   __device__ void runTreeUpDown(int tid, int nthreads, struct ncclDevWorkColl* work) {
 #else
-  __device__ __attribute__((noinline)) void runTreeUpDown(int tid, int nthreads, struct ncclDevWorkColl* work) {
+  __device__ __forceinline__ void runTreeUpDown(int tid, int nthreads, struct ncclDevWorkColl* work) {
 #endif
     const int bid = ncclShmem.channelId - work->channelLo;
     ncclTree *tree = &ncclShmem.channel.tree;
@@ -360,7 +360,7 @@ namespace {
 #if defined(USE_INDIRECT_FUNCTION_CALL) && !defined(__gfx940__) && !defined(__gfx941__) && !defined(__gfx942__)
   __device__ void runTreeSplit(int tid, int nthreads, struct ncclDevWorkColl* work) {
 #else
-  __device__ __attribute__((noinline)) void runTreeSplit(int tid, int nthreads, struct ncclDevWorkColl* work) {
+  __device__ __forceinline__ void runTreeSplit(int tid, int nthreads, struct ncclDevWorkColl* work) {
 #endif
     const int bid = ncclShmem.channelId - work->channelLo;
     ncclTree *tree = &ncclShmem.channel.tree;

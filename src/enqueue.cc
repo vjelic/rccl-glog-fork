@@ -24,6 +24,10 @@
 #include <cstring> // std::memcpy
 #include <cinttypes> // PRIx64
 
+
+#define XPUT(fmt, ...) //fprintf(stderr, fmt"\n", __VA_ARGS__)
+
+
 struct ncclKernelMatch {
   void* kernelFn;
   bool specialized;
@@ -176,6 +180,7 @@ static void addWorkBatchToPlan(
       chan->nWorkBatchesP2p += (workType == ncclDevWorkTypeP2p ? 1 : 0);
     }
     plan->nWorkBatches += 1;
+    XPUT("batch #%d funcID (devFuncId): %d", plan->nWorkBatches, batch->funcId);
   }
   batch->offsetBitset |= 1ull<<(offset/workSize);
   chan->wipBatch.workBytes += workSize;
@@ -489,6 +494,8 @@ ncclResult_t ncclPrepareTasks(struct ncclComm* comm, bool* algoNeedConnect, bool
 
       NCCLCHECK(getAlgoInfo(comm, &agg, collNetSupport, nvlsSupport, nTasksPerChannel, simInfo));
       agg.devFuncId = ncclDevFuncId(agg.func, agg.opDev.op, agg.datatype, agg.algorithm, agg.protocol);
+      XPUT("agg.func: %d devFuncID: %d", agg.func, agg.devFuncId);
+
       if (agg.devFuncId < 0) {
         WARN("%s: unsupported collective. Please ensure the collective has been enabled in build.", __func__);
         return ncclInvalidUsage;
@@ -1487,6 +1494,9 @@ ncclResult_t ncclLaunchKernel(struct ncclComm* comm, struct ncclKernelPlan* plan
   int smem = ncclShmemDynamicSize(comm->cudaArch);
   cudaStream_t launchStream = planner->streams->stream;
   void* extra[] = {plan->kernelArgs, &plan->kernelArgsSize};
+
+  XPUT("launching: nWorkBatches: %d arg size: %zu",
+      plan->nWorkBatches, plan->kernelArgsSize);
 
   if (planner->numStreams == 1 && !plan->persistent) {
     CUDACHECK(hipExtLaunchKernel(plan->kernelFn, grid, block, extra, 0, launchStream, NULL, comm->doneEvent, 0));

@@ -14,9 +14,12 @@
 #include "network/unpack/unpack.h"
 #include <cassert>
 
+#define ATOMIC_LOAD(VAR)       __atomic_load_n((VAR),         __ATOMIC_ACQUIRE)
+#define ATOMIC_STORE(PTR, VAL) __atomic_store_n((PTR), (VAL), __ATOMIC_RELEASE)
+
 template<typename T, typename RedOp, typename Fan, int Direct,
          int SlicePerChunk, int StepPerSlice, int Unroll, int P2p, int MultimemSrcs, int MultimemDsts>
-class Primitives<
+class Primitives< 
     T, RedOp, Fan, Direct, ProtoSimple<SlicePerChunk, StepPerSlice, Unroll, MultimemSrcs, MultimemDsts>, P2p
   > {
   static constexpr int MaxRecv = Fan::MaxRecv, MaxSend = Fan::MaxSend;
@@ -80,7 +83,7 @@ private:
   inline __device__ bool checkAbort(int &spins) {
     spins++;
     if (!(flags & Aborted) && spins == NCCL_SPINS_BEFORE_CHECK_ABORT) {
-      if (__atomic_load_n(ncclShmem.comm.abortFlag, __ATOMIC_SEQ_CST)) {
+      if (__atomic_load_n((uint32_t* GLOBAL)ncclShmem.comm.abortFlag, __ATOMIC_SEQ_CST)) {
         flags |= Aborted;
         ncclShmem.aborted = 1;
       }
@@ -100,9 +103,9 @@ private:
     // volatile is faster than acquire but not as correct. Make sure reduceCopy
     // loads data using volatile so it doesn't see stale data in L1.
 #if defined(__gfx1200__) || defined(__gfx1201__)
-    return __atomic_load_n(ptr, __ATOMIC_ACQUIRE);
+    return __atomic_load_n((uint64_t* GLOBAL)ptr, __ATOMIC_ACQUIRE);
 #else
-    return __atomic_load_n(ptr, __ATOMIC_RELAXED);
+    return __atomic_load_n((uint64_t* GLOBAL)ptr, __ATOMIC_RELAXED);
 #endif
   }
 
@@ -175,11 +178,11 @@ private:
 #endif
 
     if ((flags & Send*RolePostSend) && next_hdp_reg)
-      STORE((unsigned int *)next_hdp_reg, 0x1);
+      STORE((unsigned int * GLOBAL)next_hdp_reg, 0x1);
 
     if (flags & (Recv*RolePostRecv | Send*RolePostSend)) {
       step += StepPerSlice;
-      STORE(connStepPtr, step);
+      STORE((uint64_t * GLOBAL)connStepPtr, step);
     }
   }
 
@@ -440,7 +443,7 @@ public:
     st_relaxed_sys_global(peerPtr->recv[connIndex].head, peerPtr->recv[connIndex].step);
     while (ld_volatile_global(peerPtr->recv[connIndex].tail) < peerPtr->recv[connIndex].step) {
       if (spins++ == NCCL_SPINS_BEFORE_CHECK_ABORT) {
-        if (*ncclShmem.comm.abortFlag) {
+        if (*(uint32_t GLOBAL *)ncclShmem.comm.abortFlag) {
           ncclShmem.aborted = 1;
           break;
         }
@@ -727,9 +730,12 @@ private:
       // We don't want the next CUDA kernel to overwrite the send buffer which
       // was accessed directly.
       uint64_t prevStep = step - StepPerSlice;
-      volatile ssize_t* ptr = &(connFifo[prevStep%NCCL_STEPS].size);
+      auto ptr = (ssize_t GLOBAL*)&(connFifo[prevStep%NCCL_STEPS].size);
       int spins = 0;
-      while (*ptr != -1) if (checkAbort(spins)) break;
+      while(1) {
+        if (ATOMIC_LOAD(ptr) == -1) break;
+        if (checkAbort(spins)) break;
+      }
     }
 
     if (flags & NetDeviceUnpack) {
@@ -755,10 +761,10 @@ private:
 
     if (Direct && recvProvider) {
       int spins = 0;
-      void *volatile *slot = ncclShmem.groups[group].recvConns[index]->ptrExchange;
+      void * volatile *slot = ncclShmem.groups[group].recvConns[index]->ptrExchange;
       // Wait for consumer to consume previous value before trampling it.
       if (slot) {
-        while ((void *)atomicAdd((unsigned long long *) slot,0) != nullptr && !checkAbort(spins));
+        while ((void *)ATOMIC_LOAD((uint64_t GLOBAL *)slot) != nullptr && !checkAbort(spins));
         directBuff = (T*)outputBuf;
         // Encode pointer by XOR'ing against some address they definitely wouldn't send
         // since we want to allow them sending us nullptr while not colliding with
@@ -768,10 +774,10 @@ private:
     }
     if (Direct && sendAcceptor) {
       int spins = 0;
-      void *volatile *slot = ncclShmem.groups[group].sendConns[index]->ptrExchange;
+      void * volatile *slot = ncclShmem.groups[group].sendConns[index]->ptrExchange;
       void *ptr;
       while (slot) {
-        ptr = (void *)atomicAdd((unsigned long long *) slot,0);
+        ptr = (void *)ATOMIC_LOAD((uint64_t GLOBAL *) slot);
         if (ptr != nullptr || checkAbort(spins)) break;
       }
 
@@ -786,18 +792,21 @@ private:
     }
     if (Direct && sendProvider) {
       int spins = 0;
-      void *volatile *slot = ncclShmem.groups[group].sendConns[index]->ptrExchange;
-      volatile uint64_t* argSlot0 = ncclShmem.groups[group].sendConns[index]->redOpArgExchange;
-      volatile uint64_t* argSlot1 = ncclShmem.groups[group].sendConns[index]->redOpArgExchange+1;
+      void * volatile *slot = ncclShmem.groups[group].sendConns[index]->ptrExchange;
+      auto argSlot0 = (uint64_t GLOBAL *)ncclShmem.groups[group].sendConns[index]->redOpArgExchange;
+      auto argSlot1 = (uint64_t GLOBAL *)ncclShmem.groups[group].sendConns[index]->redOpArgExchange+1;
       // Wait for consumer to consume previous value before trampling it.
       if (slot && argSlot0 && argSlot1) {
-        while (((void *)atomicAdd((unsigned long long *) slot,0) != nullptr || *argSlot0 != 0 || *argSlot1 !=0) && !checkAbort(spins));
+        while (((void *)ATOMIC_LOAD((uint64_t GLOBAL *) slot) != nullptr || *argSlot0 != 0 || *argSlot1 !=0) && !checkAbort(spins));
         // If there is no recv, then we are directly pulling from input buffer (e.g. directScatter)
         // Otherwise, we are pulling from output buffer (e.g. recvCopyDirectSend)
         directBuff = MaxRecv == 0 ? (T*)inputBuf : (T*)outputBuf;
         // Exchange pre-scalers for use in direct pull
-        *argSlot0 = (uint64_t(1)<<32) | (uint32_t)redOpArg;
-        *argSlot1 = (uint64_t(1)<<32) | (uint32_t)(redOpArg>>32);
+        
+        STORE(argSlot0, (uint64_t(1)<<32) | (uint32_t)redOpArg);
+        STORE(argSlot1, (uint64_t(1)<<32) | (uint32_t)(redOpArg>>32));
+        // *argSlot0 = (uint64_t(1)<<32) | (uint32_t)redOpArg;
+        // *argSlot1 = (uint64_t(1)<<32) | (uint32_t)(redOpArg>>32);
         // Encode pointer by XOR'ing against some address they definitely wouldn't send
         // since we want to allow them sending us nullptr while not colliding with
         // the empty slot value.
@@ -807,11 +816,11 @@ private:
     if (Direct && recvAcceptor) {
       int spins = 0;
       void *volatile *slot = ncclShmem.groups[group].recvConns[index]->ptrExchange;
-      volatile uint64_t* argSlot0 = ncclShmem.groups[group].recvConns[index]->redOpArgExchange;
-      volatile uint64_t* argSlot1 = ncclShmem.groups[group].recvConns[index]->redOpArgExchange+1;
+      auto argSlot0 = (uint64_t GLOBAL *)ncclShmem.groups[group].recvConns[index]->redOpArgExchange;
+      auto argSlot1 = (uint64_t GLOBAL *)ncclShmem.groups[group].recvConns[index]->redOpArgExchange+1;
       void *ptr;
       while (slot) {
-        ptr = (void *)atomicAdd((unsigned long long *) slot,0);
+        ptr = (void *)ATOMIC_LOAD((uint64_t GLOBAL *)slot);
         if (ptr != nullptr || checkAbort(spins)) break;
       }
 
@@ -822,8 +831,8 @@ private:
           // Store scalers for remote inputs
           uint64_t arg0, arg1;
           while (true) {
-            arg0 = *argSlot0;
-            arg1 = *argSlot1;
+            arg0 = ATOMIC_LOAD(argSlot0);
+            arg1 = ATOMIC_LOAD(argSlot1);
             if ((arg0 != 0 && arg1 != 0) || checkAbort(spins)) break;
           }
           ncclShmem.redOpArgs[1 + index] = ((arg1 & 0xffffffff) << 32) | (arg0 & 0xffffffff);

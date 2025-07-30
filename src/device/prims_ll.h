@@ -86,7 +86,7 @@ private:
   inline __device__ int checkAbort(int &spins, int send) {
     spins++;
     if (abort == 0 && spins == NCCL_SPINS_BEFORE_CHECK_ABORT) {
-      abort = __atomic_load_n((ncclShmem.comm.abortFlag), __ATOMIC_SEQ_CST);
+      abort = __atomic_load_n((volatile uint32_t GLOBAL *)(ncclShmem.comm.abortFlag), __ATOMIC_SEQ_CST);
       spins = 0;
     }
     return abort;
@@ -126,7 +126,7 @@ private:
   }
   inline __device__ void postRecv() {
     barrier();
-    if (recvConnHeadPtr) STORE(recvConnHeadPtr, recvConnHead += 1);
+    if (recvConnHeadPtr) STORE((volatile uint64_t* GLOBAL)recvConnHeadPtr, recvConnHead += 1);
   }
 
   inline __device__ void incSend(int i, int offset) {
@@ -158,8 +158,8 @@ private:
       asm volatile ("global_load_b128 %0, %1, off glc slc dlc\n"
         "s_waitcnt vmcnt(0)\n" : "=v"(i4.i4) : "v"(&src->i4));
 #else
-      i4.v[0] = __builtin_nontemporal_load(src->v);
-      i4.v[1] = __builtin_nontemporal_load(src->v+1);
+      i4.v[0] = __builtin_nontemporal_load((uint64_t GLOBAL *)src->v);
+      i4.v[1] = __builtin_nontemporal_load((uint64_t GLOBAL *)src->v+1);
 #endif
 #if defined(ENABLE_NPKIT) && (defined(ENABLE_NPKIT_EVENT_PRIM_LL_DATA_PROCESS_ENTRY) && defined(ENABLE_NPKIT_EVENT_PRIM_LL_DATA_PROCESS_EXIT) || defined(ENABLE_NPKIT_PRIM_COLLECT_DATA_PROCESS_TIME))
       npkitWaitRecvSpins++;
@@ -199,8 +199,8 @@ private:
         asm volatile ("global_load_b128 %0, %1, off glc slc dlc\n"
           "s_waitcnt vmcnt(0)\n" : "=v"(line[i].i4) : "v"(&src->i4));
 #else
-        line[i].v[0] = __builtin_nontemporal_load(src->v);
-        line[i].v[1] = __builtin_nontemporal_load(src->v+1);
+        line[i].v[0] = __builtin_nontemporal_load((uint64_t GLOBAL *)src->v);
+        line[i].v[1] = __builtin_nontemporal_load((uint64_t GLOBAL *)src->v+1);
 #endif
 #else
         asm("ld.volatile.global.v4.u32 {%0,%1,%2,%3}, [%4];" : "=r"(line[i].data1), "=r"(line[i].flag1), "=r"(line[i].data2), "=r"(line[i].flag2) : "l"(&src->i4));
@@ -226,8 +226,8 @@ private:
       asm volatile ("global_load_b128 %0, %1, off glc slc dlc\n"
         "s_waitcnt vmcnt(0)\n" : "=v"(line[i].i4) : "v"(&src->i4));
 #else
-      line[i].v[0] = __builtin_nontemporal_load(src->v);
-      line[i].v[1] = __builtin_nontemporal_load(src->v+1);
+      line[i].v[0] = __builtin_nontemporal_load((uint64_t GLOBAL *)src->v);
+      line[i].v[1] = __builtin_nontemporal_load((uint64_t GLOBAL *)src->v+1);
 #endif
 #else
       asm("ld.volatile.global.v4.u32 {%0,%1,%2,%3}, [%4];" : "=r"(line[i].data1), "=r"(line[i].flag1), "=r"(line[i].data2), "=r"(line[i].flag2) : "l"(&src->i4));
@@ -256,8 +256,8 @@ private:
     i4.flag1 = flag;
     i4.data2 = (val >> 32);
     i4.flag2 = flag;
-    __builtin_nontemporal_store(i4.v[0], dst->v);
-    __builtin_nontemporal_store(i4.v[1], dst->v+1);
+    __builtin_nontemporal_store(i4.v[0], (uint64_t GLOBAL *)dst->v);
+    __builtin_nontemporal_store(i4.v[1], (uint64_t GLOBAL *)dst->v+1);
 #else
     asm volatile("st.volatile.global.v4.u32 [%0], {%1,%2,%3,%4};" :: "l"(&dst->i4), "r"((uint32_t)val), "r"(flag), "r"((uint32_t)(val >> 32)), "r"(flag));
 #endif
@@ -279,25 +279,25 @@ private:
 #ifdef __GFX11__
       u1 = __atomic_load_n((uint8_t*)src, __ATOMIC_RELAXED);
 #else
-      u1 = __builtin_nontemporal_load((uint8_t*)src);
+      u1 = __builtin_nontemporal_load((uint8_t GLOBAL *)src);
 #endif
     else if(sizeof(U) == 2)
 #ifdef __GFX11__
       u2 = __atomic_load_n((uint16_t*)src, __ATOMIC_RELAXED);
 #else
-      u2 = __builtin_nontemporal_load((uint16_t*)src);
+      u2 = __builtin_nontemporal_load((uint16_t GLOBAL *)src);
 #endif
     else if(sizeof(U) == 4)
 #ifdef __GFX11__
       u4 = __atomic_load_n((uint32_t*)src, __ATOMIC_RELAXED);
 #else
-      u4 = __builtin_nontemporal_load((uint32_t*)src);
+      u4 = __builtin_nontemporal_load((uint32_t GLOBAL *)src);
 #endif
     else
 #ifdef __GFX11__
       u8 = __atomic_load_n((uint64_t*)src, __ATOMIC_RELAXED);
 #else
-      u8 = __builtin_nontemporal_load((uint64_t*)src);
+      u8 = __builtin_nontemporal_load((uint64_t GLOBAL *)src);
 #endif
 #else
     if(sizeof(U) == 1)
@@ -324,13 +324,13 @@ private:
     elt = val;
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
     if(sizeof(U) == 1)
-      __builtin_nontemporal_store(u1, (uint8_t*)dst);
+      __builtin_nontemporal_store(u1, (uint8_t GLOBAL *)dst);
     else if(sizeof(U) == 2)
-      __builtin_nontemporal_store(u2, (uint16_t*)dst);
+      __builtin_nontemporal_store(u2, (uint16_t GLOBAL *)dst);
     else if(sizeof(U) == 4)
-      __builtin_nontemporal_store(u4, (uint32_t*)dst);
+      __builtin_nontemporal_store(u4, (uint32_t GLOBAL *)dst);
     else
-      __builtin_nontemporal_store(u8, (uint64_t*)dst);
+      __builtin_nontemporal_store(u8, (uint64_t GLOBAL *)dst);
 #else
     if(sizeof(U) == 1)
       asm("st.volatile.global.b8 [%0],%1;" :: "l"(dst), "r"(u4));
@@ -389,7 +389,7 @@ private:
     for(int i=0; i < EltPerLine; i++) {
       if (i==0 || i < eltN)
         //store(dst+i, elt[i]);
-        dst[i] = elt[i];
+        ((T GLOBAL *)dst)[i] = elt[i];
     }
   }
 
@@ -402,7 +402,7 @@ private:
     #pragma unroll
     for(int i=0; i < EltPerLine; i++) {
       if (i==0 || i < eltN)
-        store(dst+i, elt[i]);
+        store((T GLOBAL *)dst+i, elt[i]);
         // dst[i] = elt[i];
     }
   }
@@ -585,14 +585,14 @@ private:
   }
 
   __device__ __forceinline__ void loadRecvConn(struct ncclConnInfo* conn, int i) {
-    recvBuff[i] = (union ncclLLFifoLine*)conn->buffs[NCCL_PROTO_LL];
-    recvStep[i] = conn->step;
+    recvBuff[i] = (union ncclLLFifoLine*)((ncclConnInfo GLOBAL *)conn)->buffs[NCCL_PROTO_LL];
+    recvStep[i] = ((ncclConnInfo GLOBAL *)conn)->step;
     if (wid == i) recvConn = conn;
   }
   __device__ __forceinline__ void loadRecvSync() {
     if (tid >= nthreads-WARP_SIZE && wid < fan.nrecv()) {
-      recvConnHeadPtr = recvConn->head;
-      recvConnHead = recvConn->step;
+      recvConnHeadPtr = ((ncclConnInfo GLOBAL *)recvConn)->head;
+      recvConnHead = ((ncclConnInfo GLOBAL *)recvConn)->step;
     }
   }
 
@@ -603,10 +603,10 @@ private:
   }
   __device__ __forceinline__ void loadSendSync() {
     if (tid < fan.nsend()) {
-      sendConnHeadPtr = sendConn->head;
+      sendConnHeadPtr = ((ncclConnInfo GLOBAL *)sendConn)->head;
       sendConnHeadCache = *sendConnHeadPtr;
-      sendConnHead = sendConn->step;
-      sendConnFifo = sendConn->connFifo;
+      sendConnHead = ((ncclConnInfo GLOBAL *)sendConn)->step;
+      sendConnFifo = ((ncclConnInfo GLOBAL *)sendConn)->connFifo;
     }
   }
 

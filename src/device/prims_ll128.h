@@ -88,7 +88,7 @@ private:
   inline __device__ int checkAbort(int &spins, int i, int send) {
     spins++;
     if (abort == 0 && spins == NCCL_SPINS_BEFORE_CHECK_ABORT) {
-      abort = __atomic_load_n(ncclShmem.comm.abortFlag, __ATOMIC_SEQ_CST);
+      abort = __atomic_load_n((volatile uint32_t GLOBAL *)ncclShmem.comm.abortFlag, __ATOMIC_SEQ_CST);
       spins = 0;
     }
     return abort;
@@ -99,7 +99,7 @@ private:
       int spins = 0;
       while (sendConnHeadCache + NCCL_STEPS < sendConnHead + 1) {
         __builtin_amdgcn_s_sleep(1);
-        sendConnHeadCache = __atomic_load_n(sendConnHeadPtr, __ATOMIC_RELAXED);
+        sendConnHeadCache = __atomic_load_n((volatile uint64_t GLOBAL *)sendConnHeadPtr, __ATOMIC_RELAXED);
         if (checkAbort(spins, wid, 1)) break;
       }
       if (sendConnFifo) {
@@ -119,7 +119,7 @@ private:
 #else
       __threadfence();
 #endif
-      STORE((unsigned long long *)sendConnTailPtr, sendConnTail += 1);
+      STORE((unsigned long long  GLOBAL *)sendConnTailPtr, sendConnTail += 1);
     }
   }
 

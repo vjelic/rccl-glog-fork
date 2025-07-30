@@ -135,7 +135,7 @@ struct RunWorkBatch<ncclFuncSendRecv, T, RedOp, NCCL_ALGO_RING, NCCL_PROTO_SIMPL
 #if defined(USE_INDIRECT_FUNCTION_CALL) && !defined(__gfx940__) && !defined(__gfx941__) && !defined(__gfx942__)
   __device__  void run() {
 #else
-  __device__  __attribute__((noinline)) void run() {
+  __device__  __forceinline__ void run() {
 #endif
     const int tid = threadIdx.x;
     const int tn = blockDim.x;

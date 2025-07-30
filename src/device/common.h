@@ -609,6 +609,11 @@ __global__ void ncclDevKernelDebug_Generic_4(ncclDevKernelArgs4K NCCL_GRID_CONST
   __device__ __attribute__((noinline)) void ncclDevFunc_##suffix() { \
     RunWorkBatch<coll, ty, redop<ty>, algo, proto, unroll>().run(); \
   }
+
+#define DEFINE_dummyFunc(suffix, coll, redop, ty, algo, proto, unroll) \
+  __device__ __attribute__((noinline)) void ncclDevFunc_##suffix() { \
+  }
+
 #endif
 
 #endif

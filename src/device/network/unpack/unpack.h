@@ -199,7 +199,7 @@ inline __device__ void ncclNetDeviceUnpackInner(
   loadMeta meta;
 
   uint64_t head;
-  struct netUnpackMeta* g_meta_struct;
+  netUnpackMeta* g_meta_struct;
   void* bounce_buf;
 
   loadMeta* g_meta;
@@ -208,7 +208,7 @@ inline __device__ void ncclNetDeviceUnpackInner(
 
   // hack head use per-warp
   head          = step;
-  g_meta_struct = ncclShmem.groups[group].devicePlugin.unpack.g_meta[index];
+  g_meta_struct = (netUnpackMeta* GLOBAL)ncclShmem.groups[group].devicePlugin.unpack.g_meta[index];
   bounce_buf    = ncclShmem.devicePlugin.unpack.bounce_buf;
 
   __syncwarp();
@@ -269,7 +269,7 @@ inline __device__ void ncclNetDeviceUnpackInner(
       if (t < meta.len % DATA_LOAD_SIZE) {
         volatile char* cpy_src = (char*) bounce_buf + meta.src_off + (meta.len / DATA_LOAD_SIZE) * DATA_LOAD_SIZE + t;
         volatile char* cpy_dst = (char*) src        + meta.dst_off + (meta.len / DATA_LOAD_SIZE) * DATA_LOAD_SIZE + t;
-        *cpy_dst = *cpy_src;
+        *(volatile char GLOBAL *)cpy_dst = *(volatile char GLOBAL *)cpy_src;
       }
     }
 
